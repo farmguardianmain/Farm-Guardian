@@ -1,0 +1,26 @@
+{
+  "name": "farm-guardians-backend",
+  "version": "1.0.0",
+  "description": "Smart Cattle Monitoring Backend - FastAPI service with synthetic data engine",
+  "main": "app/main.py",
+  "scripts": {
+    "start": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "install": "pip install -r requirements.txt"
+  },
+  "keywords": ["fastapi", "iot", "cattle", "farm", "monitoring", "synthetic-data"],
+  "author": "Farm Guardians Team",
+  "license": "MIT",
+  "dependencies": {
+    "fastapi": "0.104.1",
+    "uvicorn": "0.24.0",
+    "firebase-admin": "6.2.0",
+    "apscheduler": "3.10.4",
+    "pydantic": "2.5.0",
+    "python-dotenv": "1.0.0",
+    "python-multipart": "0.0.6"
+  },
+  "engines": {
+    "python": ">=3.11"
+  }
+}

@@ -1,0 +1,9 @@
+# Local secrets
+backend/.env
+backend/service-account-key.json
+
+# Python cache/artifacts
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd

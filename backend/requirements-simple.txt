@@ -1,0 +1,8 @@
+# Simple requirements without Rust compilation
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+firebase-admin==5.4.0
+apscheduler==3.9.1
+pydantic==1.10.12
+python-dotenv==1.0.0
+python-multipart==0.0.6
