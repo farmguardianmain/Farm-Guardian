@@ -59,7 +59,7 @@ def start_scheduler():
         )
 
         # Optional self-ping for hosting environments that sleep idle services.
-        if _is_truthy(os.getenv("SELF_PING_ENABLED", "false")):
+        if _is_truthy(os.getenv("SELF_PING_ENABLED", "true")):
             ping_url = os.getenv("SELF_PING_URL")
             if ping_url:
                 ping_interval = int(os.getenv("SELF_PING_INTERVAL_MINUTES", "10"))
