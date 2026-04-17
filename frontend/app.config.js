@@ -22,7 +22,12 @@ module.exports = {
       backgroundColor: '#2D6A4F',
     },
     package: 'com.farmguardians.app',
-    versionCode: '1',
+    versionCode: 1,
+  },
+  extra: {
+    eas: {
+      projectId: 'ee149e7e-252b-451a-85ae-c55442b4b7e7',
+    },
   },
   web: {
     favicon: './assets/favicon.png',

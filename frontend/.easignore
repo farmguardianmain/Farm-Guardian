@@ -1,0 +1,13 @@
+# EAS upload exclusions
+# Prevent local native build outputs/caches from being uploaded.
+android/build/
+android/app/build/
+ios/build/
+
+# Local dev artifacts
+.expo/
+node_modules/
+
+# OS/editor junk
+.DS_Store
+*.log
