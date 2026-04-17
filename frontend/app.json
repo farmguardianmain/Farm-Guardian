@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Farm Guardians",
+    "slug": "farm-guardians",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "farmguardians",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.farmguardians.app"
+    },
+    "android": {
+      "package": "com.farmguardians.app",
+      "versionCode": 1
+    }
+  }
+}
