@@ -12,6 +12,16 @@ class FirebaseService:
         self._mock_store: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._initialize_firebase()
 
+    def _fallback_to_mock(self, operation: str, error: Exception):
+        """Switch to in-memory mode when Firestore is unavailable at runtime."""
+        if self.db is not None:
+            print(
+                f"⚠️ Firestore unavailable during {operation}. "
+                f"Switching to in-memory mock mode. Error: {error}"
+            )
+        self.db = None
+        self.mode = "mock"
+
     def _parse_service_account_json(self, raw_json: str) -> Dict[str, Any]:
         """Parse service account JSON from plain JSON or base64 encoded JSON."""
         try:
@@ -81,7 +91,8 @@ class FirebaseService:
             return True
         except Exception as e:
             print(f"❌ Error creating document: {e}")
-            return False
+            self._fallback_to_mock("create_document", e)
+            return await self._mock_create_document(collection, doc_id, data)
     
     async def get_document(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         """Get a document from Firestore"""
@@ -96,7 +107,8 @@ class FirebaseService:
             return None
         except Exception as e:
             print(f"❌ Error getting document: {e}")
-            return None
+            self._fallback_to_mock("get_document", e)
+            return await self._mock_get_document(collection, doc_id)
     
     async def update_document(self, collection: str, doc_id: str, data: Dict[str, Any]) -> bool:
         """Update a document in Firestore"""
@@ -109,7 +121,8 @@ class FirebaseService:
             return True
         except Exception as e:
             print(f"❌ Error updating document: {e}")
-            return False
+            self._fallback_to_mock("update_document", e)
+            return await self._mock_update_document(collection, doc_id, data)
     
     async def delete_document(self, collection: str, doc_id: str) -> bool:
         """Delete a document from Firestore"""
@@ -122,7 +135,8 @@ class FirebaseService:
             return True
         except Exception as e:
             print(f"❌ Error deleting document: {e}")
-            return False
+            self._fallback_to_mock("delete_document", e)
+            return await self._mock_delete_document(collection, doc_id)
     
     async def get_collection(self, collection: str) -> List[Dict[str, Any]]:
         """Get all documents from a collection"""
@@ -134,7 +148,8 @@ class FirebaseService:
             return [doc.to_dict() for doc in docs]
         except Exception as e:
             print(f"❌ Error getting collection: {e}")
-            return []
+            self._fallback_to_mock("get_collection", e)
+            return await self._mock_get_collection(collection)
     
     async def query_documents(self, collection: str, field: str, operator: str, value: Any) -> List[Dict[str, Any]]:
         """Query documents in a collection"""
@@ -146,7 +161,8 @@ class FirebaseService:
             return [doc.to_dict() for doc in docs]
         except Exception as e:
             print(f"❌ Error querying documents: {e}")
-            return []
+            self._fallback_to_mock("query_documents", e)
+            return await self._mock_query_documents(collection, field, operator, value)
     
     # Mock methods for development without Firebase
     async def _mock_create_document(self, collection: str, doc_id: str, data: Dict[str, Any]) -> bool:
