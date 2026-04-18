@@ -1,14 +1,16 @@
 // API service for communicating with FastAPI backend
 import Constants from 'expo-constants';
 
+const normalizeBaseUrl = (url) => (url || '').replace(/\/+$/, '');
+
 const resolveApiBaseUrl = () => {
   const configuredUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (configuredUrl) {
-    return configuredUrl;
+    return normalizeBaseUrl(configuredUrl);
   }
 
   if (!__DEV__) {
-    return 'https://your-production-url.com';
+    return 'https://farm-guardians-backend.onrender.com';
   }
 
   const hostUri =
@@ -17,10 +19,10 @@ const resolveApiBaseUrl = () => {
     Constants.manifest?.debuggerHost;
 
   const host = hostUri ? hostUri.split(':')[0] : 'localhost';
-  return `http://${host}:8002`;
+  return normalizeBaseUrl(`http://${host}:8002`);
 };
 
-const API_BASE_URL = resolveApiBaseUrl();
+const API_BASE_URL = normalizeBaseUrl(resolveApiBaseUrl());
 
 class ApiService {
   constructor() {

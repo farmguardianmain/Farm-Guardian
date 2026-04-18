@@ -8,8 +8,8 @@
     "ios": "npx expo@54 run:ios",
     "web": "npx expo@54 start --web",
     "eas:preflight": "node scripts/eas-preflight.js",
-    "eas:build:preview": "npm run eas:preflight && npx eas build --platform android --profile preview --clear-cache",
-    "eas:build:production": "npm run eas:preflight && npx eas build --platform android --profile production --clear-cache"
+    "eas:build:preview": "npm run eas:preflight && npx --yes eas-cli@18.7.0 build --platform android --profile preview --clear-cache",
+    "eas:build:production": "npm run eas:preflight && npx --yes eas-cli@18.7.0 build --platform android --profile production --clear-cache"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import cattle, alerts, milk, reproduction
 from app.services.scheduler import start_scheduler
+from app.services.synthetic_data_engine import synthetic_engine
+from app.services.firebase_service import firebase_service
 import uvicorn
 
 app = FastAPI(
@@ -36,7 +38,13 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "firebase_mode": firebase_service.mode}
+
+
+@app.post("/admin/tick")
+async def trigger_data_tick():
+    await synthetic_engine.generate_data_tick()
+    return {"status": "ok", "message": "Synthetic data tick generated"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

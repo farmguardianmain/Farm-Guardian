@@ -12,9 +12,15 @@ class SyntheticDataEngine:
         self.cattle_profiles = {}
         self.last_readings = {}
         self.alert_conditions = {}
+        self.last_milk_session_logged = {}
         
     async def initialize_cattle_profiles(self):
         """Initialize realistic cattle profiles for demo"""
+        self.cattle_profiles = {}
+        self.last_readings = {}
+        self.alert_conditions = {}
+        self.last_milk_session_logged = {}
+
         profiles = [
             {
                 "tag_id": "TAG001",
@@ -128,6 +134,74 @@ class SyntheticDataEngine:
                 "milk_decline_percent": 0,
                 "last_milk_avg": profile["base_milk_yield"]
             }
+
+            await self._ensure_cattle_document(profile)
+
+    async def _ensure_cattle_document(self, profile: Dict[str, Any]):
+        """Ensure each synthetic profile exists in the cattle collection."""
+        tag_id = profile["tag_id"]
+
+        existing = await firebase_service.get_document("cattle", tag_id)
+        if existing:
+            return
+
+        breed = profile.get("breed")
+        breed_value = breed.value if hasattr(breed, "value") else breed
+
+        cattle_doc = {
+            "tag_id": tag_id,
+            "name": profile["name"],
+            "breed": breed_value,
+            "date_of_birth": profile["date_of_birth"],
+            "weight": profile["weight"],
+            "status": "healthy",
+            "notes": "",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+
+        created = await firebase_service.create_document("cattle", tag_id, cattle_doc)
+        if not created:
+            print(f"⚠️ Failed to seed cattle profile for {tag_id}")
+
+    def _get_milk_session(self, hour: int) -> str:
+        if 4 <= hour < 12:
+            return "morning"
+        if 12 <= hour < 20:
+            return "evening"
+        return "night"
+
+    async def _record_milk_session(self, tag_id: str, reading: SensorReading):
+        """Create one milk record per cattle per session to keep summaries meaningful."""
+        now = datetime.utcnow()
+        session = self._get_milk_session(now.hour)
+        session_key = f"{now.date().isoformat()}_{session}"
+
+        if self.last_milk_session_logged.get(tag_id) == session_key:
+            return
+
+        session_fraction = {
+            "morning": 0.55,
+            "evening": 0.40,
+            "night": 0.05,
+        }
+        base_session_yield = reading.milk_yield_liters * session_fraction.get(session, 0.33)
+        yield_liters = round(max(0.5, base_session_yield + random.uniform(-0.4, 0.4)), 2)
+
+        record_id = f"milk_{tag_id}_{now.strftime('%Y%m%d')}_{session}"
+        milk_record = {
+            "id": record_id,
+            "cattle_id": tag_id,
+            "date": now,
+            "session": session,
+            "yield_liters": yield_liters,
+            "notes": "Synthetic session",
+            "created_at": now,
+        }
+
+        created = await firebase_service.create_document("milk_records", record_id, milk_record)
+        if created:
+            self.last_milk_session_logged[tag_id] = session_key
     
     def generate_sensor_reading(self, tag_id: str) -> SensorReading:
         """Generate realistic sensor reading for a specific cattle"""
@@ -326,9 +400,15 @@ class SyntheticDataEngine:
     
     async def generate_data_tick(self):
         """Generate one tick of data for all cattle"""
-        for tag_id in self.cattle_profiles.keys():
+        if not self.cattle_profiles:
+            await self.initialize_cattle_profiles()
+
+        for tag_id in list(self.cattle_profiles.keys()):
             # Generate sensor reading
             reading = self.generate_sensor_reading(tag_id)
+
+            # Make sure cattle identity data exists before telemetry updates.
+            await self._ensure_cattle_document(self.cattle_profiles[tag_id])
             
             # Save to Firebase
             await firebase_service.create_document(
@@ -336,6 +416,8 @@ class SyntheticDataEngine:
                 f"{tag_id}_{int(datetime.now().timestamp())}",
                 reading.dict()
             )
+
+            await self._record_milk_session(tag_id, reading)
             
             # Check for alerts
             alerts = await self.check_alert_conditions(tag_id, reading)

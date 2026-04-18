@@ -8,14 +8,10 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
 import ApiService from '../../services/api';
-import FirebaseService from '../../services/firebase';
-import { where } from 'firebase/firestore';
 import { colors, typography, statusColors } from '../../theme';
 
 const AlertsListScreen = () => {
-  const navigation = useNavigation();
   const [alerts, setAlerts] = useState([]);
   const [selectedTab, setSelectedTab] = useState('active');
   const [isLoading, setIsLoading] = useState(false);
@@ -28,47 +24,26 @@ const AlertsListScreen = () => {
 
   useEffect(() => {
     loadAlerts();
-    
-    // Subscribe to real-time updates for active tab
-    // Only subscribe with a where clause for active/resolved, not for 'all'
-    let unsubscribe = null;
-    if (selectedTab !== 'all') {
-      unsubscribe = FirebaseService.subscribeToQuery(
-        'alerts',
-        [where('dismissed', '==', selectedTab === 'resolved')],
-        (data) => {
-          setAlerts(data);
-        }
-      );
-    } else {
-      unsubscribe = FirebaseService.subscribeToCollection('alerts', (data) => {
-        setAlerts(data);
-      }, 'timestamp', 100);
-    }
 
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    const refreshTimer = setInterval(() => {
+      loadAlerts();
+    }, 30000);
+
+    return () => clearInterval(refreshTimer);
   }, [selectedTab]);
+
+  const parseTimestamp = (timestamp) => {
+    if (!timestamp) return null;
+    if (typeof timestamp?.toDate === 'function') return timestamp.toDate();
+    if (typeof timestamp?.seconds === 'number') return new Date(timestamp.seconds * 1000);
+    const parsed = new Date(timestamp);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
 
   const loadAlerts = async () => {
     setIsLoading(true);
     try {
-      let alertsData = [];
-      try {
-        alertsData = await ApiService.getAlerts(selectedTab);
-      } catch (error) {
-        console.log('API failed, trying Firebase...', error);
-        const allAlerts = await FirebaseService.getCollection('alerts');
-        
-        if (selectedTab === 'active') {
-          alertsData = allAlerts.filter(alert => !alert.dismissed);
-        } else if (selectedTab === 'resolved') {
-          alertsData = allAlerts.filter(alert => alert.dismissed);
-        } else {
-          alertsData = allAlerts;
-        }
-      }
+      const alertsData = await ApiService.getAlerts(selectedTab);
 
       // Sort by severity and timestamp
       const severityOrder = { critical: 0, warning: 1, info: 2 };
@@ -79,7 +54,9 @@ const AlertsListScreen = () => {
         if (severityOrder[a.severity] !== severityOrder[b.severity]) {
           return severityOrder[a.severity] - severityOrder[b.severity];
         }
-        return new Date(b.timestamp?.seconds * 1000) - new Date(a.timestamp?.seconds * 1000);
+        const bTime = parseTimestamp(b.timestamp)?.getTime() || 0;
+        const aTime = parseTimestamp(a.timestamp)?.getTime() || 0;
+        return bTime - aTime;
       });
 
       setAlerts(alertsData);
@@ -94,7 +71,7 @@ const AlertsListScreen = () => {
   const dismissAlert = async (alertId) => {
     try {
       await ApiService.dismissAlert(alertId);
-      // Alerts will be updated via real-time subscription
+      await loadAlerts();
     } catch (error) {
       console.error('Dismiss alert error:', error);
       Alert.alert('Error', 'Failed to dismiss alert');
@@ -107,7 +84,8 @@ const AlertsListScreen = () => {
 
   const formatDateTime = (timestamp) => {
     if (!timestamp) return 'Unknown';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date = parseTimestamp(timestamp);
+    if (!date) return 'Unknown';
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { 
       hour: '2-digit', 
       minute: '2-digit' 

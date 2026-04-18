@@ -32,9 +32,22 @@ async def self_ping_job():
     except Exception as e:
         print(f"⚠️ Self-ping failed: {e}")
 
+
+async def bootstrap_data_job():
+    """Initialize synthetic profiles and generate an immediate first tick."""
+    try:
+        await synthetic_engine.initialize_cattle_profiles()
+        await synthetic_engine.generate_data_tick()
+        print("✅ Initial synthetic data bootstrap complete")
+    except Exception as e:
+        print(f"❌ Error in bootstrap data job: {e}")
+
 async def data_generation_job():
     """Background job to generate synthetic data"""
     try:
+        if not synthetic_engine.cattle_profiles:
+            await synthetic_engine.initialize_cattle_profiles()
+
         await synthetic_engine.generate_data_tick()
         print(f"🔄 Data tick generated at {asyncio.get_event_loop().time()}")
     except Exception as e:
@@ -43,8 +56,8 @@ async def data_generation_job():
 def start_scheduler():
     """Start the APScheduler for synthetic data generation"""
     try:
-        # Initialize cattle profiles first
-        asyncio.create_task(synthetic_engine.initialize_cattle_profiles())
+        # Prime baseline data on startup so API responses are non-empty.
+        asyncio.create_task(bootstrap_data_job())
 
         data_generation_interval = int(os.getenv("DATA_GENERATION_INTERVAL", "30"))
         data_generation_interval = max(1, data_generation_interval)

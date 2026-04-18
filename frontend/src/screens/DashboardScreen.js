@@ -10,8 +10,6 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import ApiService from '../services/api';
-import FirebaseService, { db } from '../services/firebase';
-import { query, collection, where, onSnapshot } from 'firebase/firestore';
 import { colors, typography } from '../theme';
 
 const DashboardScreen = () => {
@@ -33,19 +31,12 @@ const DashboardScreen = () => {
 
   useEffect(() => {
     loadDashboardData();
-    
-    // Subscribe to real-time updates
-    const unsubscribeAlerts = FirebaseService.subscribeToQuery(
-      'alerts',
-      [where('dismissed', '==', false)],
-      (data) => {
-        setAlerts(data.slice(0, 10)); // Show latest 10 alerts
-      }
-    );
 
-    return () => {
-      if (unsubscribeAlerts) unsubscribeAlerts();
-    };
+    const refreshTimer = setInterval(() => {
+      loadDashboardData();
+    }, 30000);
+
+    return () => clearInterval(refreshTimer);
   }, []);
 
   const loadDashboardData = async () => {
@@ -55,6 +46,7 @@ const DashboardScreen = () => {
       await Promise.all([
         loadSummaryData(),
         loadActivityData(),
+        loadAlertsData(),
       ]);
     } catch (error) {
       console.error('Dashboard data load error:', error);
@@ -66,38 +58,26 @@ const DashboardScreen = () => {
 
   const loadSummaryData = async () => {
     try {
-      // Get cattle count
-      let cattle = [];
-      try {
-        cattle = await ApiService.getCattle();
-      } catch (error) {
-        cattle = await FirebaseService.getCollection('cattle');
-      }
+      const [
+        cattleResult,
+        alertStatsResult,
+        milkSummaryResult,
+        heatDataResult,
+      ] = await Promise.allSettled([
+        ApiService.getCattle(),
+        ApiService.getAlertStats(),
+        ApiService.getMilkSummary(),
+        ApiService.getHeatDetection(),
+      ]);
 
-      // Get alerts count
-      let alertStats = { active_alerts: 0 };
-      try {
-        alertStats = await ApiService.getAlertStats();
-      } catch (error) {
-        const allAlerts = await FirebaseService.queryDocuments('alerts', 'dismissed', '==', false);
-        alertStats.active_alerts = allAlerts.length;
-      }
-
-      // Get milk summary
-      let milkSummary = { today_total: 0 };
-      try {
-        milkSummary = await ApiService.getMilkSummary();
-      } catch (error) {
-        // Fallback calculation would go here
-      }
-
-      // Get heat detection data
-      let heatData = [];
-      try {
-        heatData = await ApiService.getHeatDetection();
-      } catch (error) {
-        // Fallback calculation
-      }
+      const cattle = cattleResult.status === 'fulfilled' ? cattleResult.value : [];
+      const alertStats = alertStatsResult.status === 'fulfilled'
+        ? alertStatsResult.value
+        : { active_alerts: 0 };
+      const milkSummary = milkSummaryResult.status === 'fulfilled'
+        ? milkSummaryResult.value
+        : { today_total: 0 };
+      const heatData = heatDataResult.status === 'fulfilled' ? heatDataResult.value : [];
 
       setSummaryData({
         totalCattle: cattle.length,
@@ -110,17 +90,24 @@ const DashboardScreen = () => {
     }
   };
 
+  const loadAlertsData = async () => {
+    try {
+      const activeAlerts = await ApiService.getAlerts('active');
+      setAlerts(activeAlerts.slice(0, 10));
+    } catch (error) {
+      console.error('Alerts data error:', error);
+      setAlerts([]);
+    }
+  };
+
   const loadActivityData = async () => {
     try {
-      // Get all cattle and their latest readings
-      const cattle = await FirebaseService.getCollection('cattle');
+      const cattle = await ApiService.getCattle();
       const activities = { active: 0, resting: 0, eating: 0, ruminating: 0 };
 
-      // In a real implementation, you'd get the latest sensor readings
-      // For demo, simulate activity distribution
-      const simulatedActivities = ['active', 'resting', 'eating', 'ruminating'];
-      cattle.forEach(cow => {
-        const activity = simulatedActivities[Math.floor(Math.random() * simulatedActivities.length)];
+      const defaultPattern = ['active', 'eating', 'resting', 'ruminating'];
+      cattle.forEach((_, index) => {
+        const activity = defaultPattern[index % defaultPattern.length];
         activities[activity]++;
       });
 
@@ -133,9 +120,7 @@ const DashboardScreen = () => {
   const dismissAlert = async (alertId) => {
     try {
       await ApiService.dismissAlert(alertId);
-      // Refresh alerts
-      const updatedAlerts = await FirebaseService.queryDocuments('alerts', 'dismissed', '==', false);
-      setAlerts(updatedAlerts.slice(0, 10));
+      await loadDashboardData();
     } catch (error) {
       console.error('Dismiss alert error:', error);
       Alert.alert('Error', 'Failed to dismiss alert');

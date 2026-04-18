@@ -1,5 +1,5 @@
 module.exports = {
-  name: 'Farm Guardians',
+  name: 'Farm Guardian',
   slug: 'farm-guardians',
   version: '1.0.0',
   extra: {

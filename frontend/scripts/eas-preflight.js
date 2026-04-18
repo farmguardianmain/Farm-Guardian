@@ -23,8 +23,22 @@ function runGradleStop() {
 
 function removeIfExists(targetPath) {
   if (fs.existsSync(targetPath)) {
-    fs.rmSync(targetPath, { recursive: true, force: true });
-    console.log('[preflight] Removed', targetPath);
+    try {
+      fs.rmSync(targetPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 250,
+      });
+      console.log('[preflight] Removed', targetPath);
+    } catch (error) {
+      // Windows may keep Gradle checksum locks briefly; don't block cloud builds on local lock files.
+      if (error && ['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(error.code)) {
+        console.warn(`[preflight] Skipped locked path: ${targetPath} (${error.code})`);
+        return;
+      }
+      throw error;
+    }
   }
 }
 

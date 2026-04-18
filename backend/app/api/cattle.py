@@ -19,6 +19,24 @@ async def get_all_cattle():
         if not cattle_list:
             await initialize_cattle_data()
             cattle_list = await firebase_service.get_collection("cattle")
+
+            # Final fallback for environments running in mock mode.
+            if not cattle_list and synthetic_engine.cattle_profiles:
+                now = datetime.utcnow()
+                cattle_list = [
+                    {
+                        "tag_id": profile["tag_id"],
+                        "name": profile["name"],
+                        "breed": profile["breed"].value if hasattr(profile["breed"], "value") else profile["breed"],
+                        "date_of_birth": profile["date_of_birth"],
+                        "weight": profile["weight"],
+                        "status": "healthy",
+                        "notes": "",
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for profile in synthetic_engine.cattle_profiles.values()
+                ]
         
         return cattle_list
     except Exception as e:
@@ -226,10 +244,13 @@ async def initialize_cattle_data():
     await synthetic_engine.initialize_cattle_profiles()
     
     for tag_id, profile in synthetic_engine.cattle_profiles.items():
+        breed = profile.get("breed")
+        breed_value = breed.value if hasattr(breed, "value") else breed
+
         cattle_data = {
             "tag_id": profile["tag_id"],
             "name": profile["name"],
-            "breed": profile["breed"],
+            "breed": breed_value,
             "date_of_birth": profile["date_of_birth"],
             "weight": profile["weight"],
             "status": "healthy",
@@ -237,7 +258,9 @@ async def initialize_cattle_data():
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        await firebase_service.create_document("cattle", tag_id, cattle_data)
+        created = await firebase_service.create_document("cattle", tag_id, cattle_data)
+        if not created:
+            print(f"⚠️ Failed to initialize cattle document for {tag_id}")
 
 async def get_latest_sensor_reading(tag_id: str) -> Optional[dict]:
     """Get the latest sensor reading for a cattle"""
