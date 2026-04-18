@@ -2,7 +2,12 @@
 # Prevent local native build outputs/caches from being uploaded.
 android/build/
 android/app/build/
+android/.gradle/
+android/.gradle/**
+android/**/checksums.lock
+android/local.properties
 ios/build/
+.gradle/
 
 # Local dev artifacts
 .expo/
