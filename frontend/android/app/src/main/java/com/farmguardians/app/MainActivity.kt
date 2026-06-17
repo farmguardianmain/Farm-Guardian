@@ -1,4 +1,4 @@
-package com.frontend
+package com.farmguardians.app
 
 import android.os.Build
 import android.os.Bundle

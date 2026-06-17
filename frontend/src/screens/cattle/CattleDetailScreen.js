@@ -170,8 +170,7 @@ const CattleDetailScreen = () => {
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => {
-            // Navigate to add health event screen
-            Alert.alert('Coming Soon', 'Add health event functionality will be available soon.');
+            navigation.navigate('AddHealthEvent', { cattleId: selectedCattle.cattle.tag_id });
           }}
         >
           <Text style={styles.addButtonText}>+ Add Health Event</Text>
@@ -205,8 +204,7 @@ const CattleDetailScreen = () => {
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => {
-            // Navigate to log milk screen
-            Alert.alert('Coming Soon', 'Log milk session functionality will be available soon.');
+            navigation.navigate('LogMilk', { cattleId: selectedCattle.cattle.tag_id });
           }}
         >
           <Text style={styles.addButtonText}>+ Log Milk Session</Text>

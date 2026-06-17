@@ -8,6 +8,9 @@ module.exports = {
     resizeMode: 'contain',
     backgroundColor: '#f2efe6',
   },
+  assetBundlePatterns: [
+    '**/*',
+  ],
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.farmguardians.app',

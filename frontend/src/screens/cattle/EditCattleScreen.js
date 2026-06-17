@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import ApiService from '../../services/api';
 import { useCattleStore } from '../../store';
 import { colors, typography } from '../../theme';
 
@@ -97,7 +98,26 @@ const EditCattleScreen = () => {
           [
             {
               text: 'OK',
-              onPress: () => navigation.goBack(),
+              onPress: async () => {
+                // Fetch alerts for this cattle
+                try {
+                  const alerts = await ApiService.getAlerts();
+                  const cowAlerts = alerts.filter(a => a.cattle_id === tagId && !a.dismissed);
+                  if (cowAlerts.length > 0) {
+                    const alert = cowAlerts[0];
+                    Alert.alert('Alert', `${alert.title}: ${alert.description}`);
+                    // Dismiss the alert after user sees it
+                    try {
+                      await ApiService.dismissAlert(alert.id);
+                    } catch (dismissErr) {
+                      console.error('Failed to dismiss alert', dismissErr);
+                    }
+                  }
+                } catch (e) {
+                  console.error('Failed to fetch alerts', e);
+                }
+                navigation.goBack();
+              },
             },
           ]
         );

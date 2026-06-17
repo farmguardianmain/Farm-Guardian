@@ -17,6 +17,7 @@ import MilkSummaryScreen from '../screens/milk/MilkSummaryScreen';
 import LogMilkScreen from '../screens/milk/LogMilkScreen';
 import HeatDetectionScreen from '../screens/repro/HeatDetectionScreen';
 import PregnancyTrackerScreen from '../screens/repro/PregnancyTrackerScreen';
+import AddHealthEventScreen from '../screens/cattle/AddHealthEventScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -50,7 +51,7 @@ const MainTabNavigator = () => {
       />
       <Tab.Screen 
         name="Cattle" 
-        component={CattleListScreen}
+        component={CattleStackNavigator}
         options={{
           title: 'Cattle',
           tabBarIcon: ({ color, size }) => (
@@ -115,6 +116,11 @@ const CattleStackNavigator = () => {
         name="EditCattle" 
         component={EditCattleScreen}
         options={{ title: 'Edit Cattle' }}
+      />
+      <Stack.Screen 
+        name="AddHealthEvent" 
+        component={AddHealthEventScreen}
+        options={{ title: 'Add Health Event' }}
       />
     </Stack.Navigator>
   );

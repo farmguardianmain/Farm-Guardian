@@ -19,7 +19,7 @@ const resolveApiBaseUrl = () => {
     Constants.manifest?.debuggerHost;
 
   const host = hostUri ? hostUri.split(':')[0] : 'localhost';
-  return normalizeBaseUrl(`http://${host}:8002`);
+  return normalizeBaseUrl(`http://${host}:8000`);
 };
 
 const API_BASE_URL = normalizeBaseUrl(resolveApiBaseUrl());
@@ -84,13 +84,6 @@ class ApiService {
     });
   }
 
-  async logMilkSession(tagId, milkData) {
-    return this.request(`/cattle/${tagId}/milk`, {
-      method: 'POST',
-      body: JSON.stringify(milkData),
-    });
-  }
-
   async addHealthEvent(tagId, healthData) {
     return this.request(`/cattle/${tagId}/health-event`, {
       method: 'POST',
@@ -148,6 +141,15 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify(aiData),
     });
+  }
+
+  async logHeatEvent(heatData) {
+    // POST /reproduction/log-heat-event (future backend endpoint)
+    // For now falls back gracefully; data is persisted locally in HeatDetectionScreen.
+    return this.request('/reproduction/log-heat-event', {
+      method: 'POST',
+      body: JSON.stringify(heatData),
+    }).catch(() => ({ local: true }));
   }
 
   async confirmCalving(calvingData) {

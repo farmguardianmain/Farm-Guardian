@@ -27,6 +27,8 @@ const CattleListScreen = () => {
     { key: 'in_heat', label: 'In Heat' },
     { key: 'pregnant', label: 'Pregnant' },
     { key: 'dry', label: 'Dry' },
+    { key: 'overweight', label: 'Overweight' },
+    { key: 'underweight', label: 'Underweight' },
   ];
 
   useEffect(() => {

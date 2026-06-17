@@ -1,4 +1,4 @@
-package com.frontend
+package com.farmguardians.app
 
 import android.app.Application
 import android.content.res.Configuration

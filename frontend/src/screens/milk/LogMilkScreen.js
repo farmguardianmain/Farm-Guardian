@@ -13,12 +13,19 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import ApiService from '../../services/api';
 import { useCattleStore } from '../../store';
 import { colors, typography } from '../../theme';
+import CattleSelectModal from '../../components/CattleSelectModal';
 
 const LogMilkScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const { cattleId } = route.params || {};
-  const { cattle } = useCattleStore();
+  const { cattle, fetchCattle } = useCattleStore();
+
+  useEffect(() => {
+    if (cattle.length === 0) {
+      fetchCattle();
+    }
+  }, [cattle, fetchCattle]);
   
   const [formData, setFormData] = useState({
     cattle_id: cattleId || '',
@@ -28,6 +35,8 @@ const LogMilkScreen = () => {
     notes: '',
   });
 
+  const [cattleModalVisible, setCattleModalVisible] = useState(false);
+  const [selectedCattleName, setSelectedCattleName] = useState('');
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
 
@@ -41,6 +50,7 @@ const LogMilkScreen = () => {
     if (cattleId && cattle.length > 0) {
       const selectedCattle = cattle.find(cow => cow.tag_id === cattleId);
       if (selectedCattle) {
+        setSelectedCattleName(selectedCattle.name);
         navigation.setOptions({
           title: `Log Milk - ${selectedCattle.name}`,
         });
@@ -81,15 +91,37 @@ const LogMilkScreen = () => {
       await ApiService.logMilkSession(milkData);
       
       Alert.alert(
-        'Success',
-        'Milk session logged successfully',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
-      );
+          'Success',
+          'Milk session logged successfully',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                // Fetch latest cattle data to evaluate health metrics
+                try {
+                  const cattleData = await ApiService.getCattleDetail(formData.cattle_id.trim());
+                  // Simple metric checks
+                  const lowMilkThreshold = 5; // liters
+                  const alerts = [];
+                  if (cattleData?.weight && cattleData.weight > 900) {
+                    alerts.push('Cow is overweight');
+                  } else if (cattleData?.weight && cattleData.weight < 450) {
+                    alerts.push('Cow is underweight');
+                  }
+                  if (parseFloat(formData.yield_liters) < lowMilkThreshold) {
+                    alerts.push(`Milk yield is low (${formData.yield_liters}L)`);
+                  }
+                  if (alerts.length > 0) {
+                    Alert.alert('Health Alert', alerts.join('\n'));
+                  }
+                } catch (e) {
+                  console.error('Metric check error', e);
+                }
+                navigation.goBack();
+              },
+            },
+          ]
+        );
     } catch (error) {
       console.error('Log milk error:', error);
       Alert.alert('Error', 'Failed to log milk session');
@@ -137,13 +169,39 @@ const LogMilkScreen = () => {
         {/* Cattle Selection */}
         <View style={styles.inputContainer}>
           <Text style={styles.label}>Cattle *</Text>
-          <TextInput
-            style={[styles.input, styles.readOnlyInput, errors.cattle_id && styles.inputError]}
-            value={formData.cattle_id}
-            editable={false}
-          />
+          <TouchableOpacity
+            style={[styles.selectorButton, errors.cattle_id && styles.inputError]}
+            onPress={() => setCattleModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.selectorContent}>
+              {formData.cattle_id ? (
+                <View>
+                  <Text style={styles.selectorName}>{selectedCattleName || formData.cattle_id}</Text>
+                  <Text style={styles.selectorTag}>{formData.cattle_id}</Text>
+                </View>
+              ) : (
+                <Text style={styles.selectorPlaceholder}>Tap to select cattle…</Text>
+              )}
+            </View>
+            <Text style={styles.selectorChevron}>▾</Text>
+          </TouchableOpacity>
           {errors.cattle_id && <Text style={styles.errorText}>{errors.cattle_id}</Text>}
         </View>
+
+        {/* Cattle Picker Modal */}
+        <CattleSelectModal
+          visible={cattleModalVisible}
+          cattle={cattle}
+          onSelect={(tagId) => {
+            const found = cattle.find(c => c.tag_id === tagId);
+            setFormData(prev => ({ ...prev, cattle_id: tagId }));
+            setSelectedCattleName(found ? found.name : tagId);
+            if (errors.cattle_id) setErrors(prev => ({ ...prev, cattle_id: '' }));
+            setCattleModalVisible(false);
+          }}
+          onClose={() => setCattleModalVisible(false)}
+        />
 
         {/* Date */}
         <View style={styles.inputContainer}>
@@ -241,9 +299,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.textSecondary,
   },
-  readOnlyInput: {
-    backgroundColor: colors.textSecondary + '20',
+  selectorButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: colors.textSecondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectorContent: {
+    flex: 1,
+  },
+  selectorName: {
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  selectorTag: {
+    ...typography.caption,
     color: colors.textSecondary,
+    marginTop: 2,
+  },
+  selectorPlaceholder: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  selectorChevron: {
+    fontSize: 18,
+    color: colors.primary,
+    marginLeft: 8,
   },
   inputError: {
     borderColor: colors.critical,

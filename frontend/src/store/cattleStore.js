@@ -20,7 +20,17 @@ const useCattleStore = create((set, get) => ({
         cattleData = await ApiService.getCattle();
       } catch (apiError) {
         console.log('API failed, trying Firebase...', apiError);
-        cattleData = await FirebaseService.getCollection('cattle');
+        const rawCattle = await FirebaseService.getCollection('cattle');
+        // Derive weight-based status so overweight/underweight shows even in offline mode
+        cattleData = rawCattle.map(c => {
+          const w = parseFloat(c.weight);
+          let status = c.status || 'healthy';
+          if (!isNaN(w)) {
+            if (w > 900) status = 'overweight';
+            else if (w < 450) status = 'underweight';
+          }
+          return { ...c, status };
+        });
       }
       
       set({ cattle: cattleData, isLoading: false });

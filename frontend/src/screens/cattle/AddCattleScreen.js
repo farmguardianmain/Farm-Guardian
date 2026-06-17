@@ -1,14 +1,7 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { Alert, ScrollView, View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import AlertModal from '../../components/AlertModal.js';
+import ApiService from '../../services/api';
 import { useNavigation } from '@react-navigation/native';
 import { useCattleStore } from '../../store';
 import { colors, typography } from '../../theme';
@@ -16,6 +9,10 @@ import { colors, typography } from '../../theme';
 const AddCattleScreen = () => {
   const navigation = useNavigation();
   const { createCattle, isLoading } = useCattleStore();
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [onModalClose, setOnModalClose] = useState(() => {});
   
   const [formData, setFormData] = useState({
     tag_id: '',
@@ -77,16 +74,34 @@ const AddCattleScreen = () => {
       const success = await createCattle(cattleData);
       
       if (success) {
-        Alert.alert(
-          'Success',
-          'Cattle record created successfully',
-          [
-            {
-              text: 'OK',
-              onPress: () => navigation.goBack(),
-            },
-          ]
-        );
+        setAlertTitle('Success');
+        setAlertMessage('Cattle record updated successfully');
+        setAlertVisible(true);
+        
+        const processAlerts = async () => {
+          try {
+            const alerts = await ApiService.getAlerts();
+            const cowAlerts = alerts.filter(a => a.cattle_id === cattleData.tag_id && !a.dismissed);
+            if (cowAlerts.length > 0) {
+              const alert = cowAlerts[0];
+              setAlertTitle(alert.title);
+              setAlertMessage(alert.description);
+              setAlertVisible(true);
+              try {
+                await ApiService.dismissAlert(alert.id);
+              } catch (dismissErr) {
+                console.error('Failed to dismiss alert', dismissErr);
+              }
+            } else {
+              setTimeout(() => navigation.goBack(), 500);
+            }
+          } catch (e) {
+            console.error('Failed to fetch alerts', e);
+            setTimeout(() => navigation.goBack(), 500);
+          }
+        };
+        
+        setOnModalClose(() => processAlerts);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to create cattle record');
@@ -216,6 +231,17 @@ const AddCattleScreen = () => {
             <Text style={styles.submitButtonText}>Create Cattle Record</Text>
           )}
         </TouchableOpacity>
+
+        {/* Custom Alert Modal */}
+        <AlertModal
+          visible={alertVisible}
+          title={alertTitle}
+          message={alertMessage}
+          onClose={() => {
+            setAlertVisible(false);
+            if (onModalClose) onModalClose();
+          }}
+        />
 
         {/* Cancel Button */}
         <TouchableOpacity
