@@ -14,6 +14,61 @@ class SyntheticDataEngine:
         self.alert_conditions = {}
         self.last_milk_session_logged = {}
         
+    def register_cattle_if_missing(self, tag_id: str, name: str, breed: Any, date_of_birth: Any, weight: float):
+        if tag_id in self.cattle_profiles:
+            return
+            
+        from app.models.cattle import Breed
+        try:
+            if hasattr(breed, "value"):
+                breed_enum = breed
+            else:
+                breed_enum = Breed(breed)
+        except Exception:
+            breed_enum = Breed.HOLSTEIN
+            
+        dob = date_of_birth
+        if isinstance(dob, str):
+            try:
+                dob = datetime.fromisoformat(dob.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                dob = datetime.utcnow()
+        elif hasattr(dob, "to_datetime"):
+            dob = dob.to_datetime().replace(tzinfo=None)
+        elif hasattr(dob, "toDate"):
+            dob = dob.toDate().replace(tzinfo=None)
+        elif isinstance(dob, datetime):
+            dob = dob.replace(tzinfo=None)
+        else:
+            dob = datetime.utcnow()
+
+        self.cattle_profiles[tag_id] = {
+            "tag_id": tag_id,
+            "name": name,
+            "breed": breed_enum,
+            "date_of_birth": dob,
+            "weight": weight,
+            "base_milk_yield": 25.0,
+            "heat_cycle_day": random.randint(1, 21)
+        }
+        
+        self.last_readings[tag_id] = {
+            "temperature": 38.8,
+            "activity": "resting",
+            "rumination_24h": 8.0,
+            "eating_24h": 5.0,
+            "milk_yield": 25.0,
+            "heat_score": random.uniform(15.0, 35.0),
+            "pregnancy_days": None
+        }
+        
+        self.alert_conditions[tag_id] = {
+            "fever_ticks": 0,
+            "low_activity_hours": 0,
+            "milk_decline_percent": 0,
+            "last_milk_avg": 25.0
+        }
+
     async def initialize_cattle_profiles(self):
         """Initialize realistic cattle profiles for demo"""
         self.cattle_profiles = {}
@@ -231,6 +286,7 @@ class SyntheticDataEngine:
         else:
             rumination = max(4.0, min(10.0, last_reading["rumination_24h"] + random.uniform(-0.1, 0.1)))
             eating = max(3.0, min(7.0, last_reading["eating_24h"] + random.uniform(-0.1, 0.1)))
+        
         
         # Generate milk yield with variations
         milk_variation = random.gauss(0, profile["base_milk_yield"] * 0.1)

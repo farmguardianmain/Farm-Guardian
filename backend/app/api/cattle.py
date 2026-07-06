@@ -1,12 +1,72 @@
 from fastapi import APIRouter, HTTPException
+import os
 from typing import List, Optional
 from app.models.cattle import Cattle, CattleCreate, CattleUpdate
 from app.models.sensor_data import SensorReading
 from app.services.firebase_service import firebase_service
+from app.models.alerts import Alert, AlertType, AlertSeverity
 from app.services.synthetic_data_engine import synthetic_engine
 from datetime import datetime
 
 router = APIRouter()
+
+# Helper to generate weight alerts based on thresholds
+def _generate_weight_alert(tag_id: str, weight: float) -> Alert | None:
+    """Return an Alert if weight is under/over thresholds, else None."""
+    under_thresh = int(os.getenv("UNDERWEIGHT_THRESHOLD", "450"))
+    over_thresh = int(os.getenv("OVERWEIGHT_THRESHOLD", "900"))
+    if weight < under_thresh:
+        return Alert(
+            id=f"underweight_{tag_id}_{int(datetime.utcnow().timestamp())}",
+            cattle_id=tag_id,
+            alert_type=AlertType.UNDERWEIGHT,
+            severity=AlertSeverity.WARNING,
+            title="Underweight Cattle",
+            description=f"Weight {weight}kg is below the underweight threshold ({under_thresh}kg).",
+            recommended_action="Check nutrition and health status."
+        )
+    if weight > over_thresh:
+        return Alert(
+            id=f"overweight_{tag_id}_{int(datetime.utcnow().timestamp())}",
+            cattle_id=tag_id,
+            alert_type=AlertType.OVERWEIGHT,
+            severity=AlertSeverity.WARNING,
+            title="Overweight Cattle",
+            description=f"Weight {weight}kg exceeds the overweight threshold ({over_thresh}kg).",
+            recommended_action="Review diet and activity levels."
+        )
+    return None
+
+async def _determine_dynamic_status(tag_id: str, current_weight: float) -> str:
+    try:
+        active_alerts = await firebase_service.query_documents("alerts", "cattle_id", "==", tag_id)
+        active_alerts = [a for a in active_alerts if not a.get("dismissed", False)]
+    except Exception:
+        active_alerts = []
+    
+    has_active_health_alerts = any(
+        a.get("severity") in ("critical", "warning") and a.get("alert_type") not in ("underweight", "overweight") 
+        for a in active_alerts
+    )
+
+    under_thresh = int(os.getenv("UNDERWEIGHT_THRESHOLD", "450"))
+    over_thresh = int(os.getenv("OVERWEIGHT_THRESHOLD", "900"))
+    
+    if has_active_health_alerts:
+        return "alert"
+    elif current_weight < under_thresh:
+        return "underweight"
+    elif current_weight > over_thresh:
+        return "overweight"
+    
+    if tag_id in synthetic_engine.last_readings:
+        last = synthetic_engine.last_readings[tag_id]
+        if last.get("heat_score", 0) > 75:
+            return "in_heat"
+        if last.get("pregnancy_days") is not None:
+            return "pregnant"
+            
+    return "healthy"
 
 @router.get("/", response_model=List[Cattle])
 async def get_all_cattle():
@@ -38,6 +98,21 @@ async def get_all_cattle():
                     for profile in synthetic_engine.cattle_profiles.values()
                 ]
         
+        # Ensure all cattle are registered in synthetic engine and status is dynamic
+        for c in cattle_list:
+            tag_id = c.get("tag_id")
+            synthetic_engine.register_cattle_if_missing(
+                tag_id=tag_id,
+                name=c.get("name", tag_id),
+                breed=c.get("breed", "holstein"),
+                date_of_birth=c.get("date_of_birth"),
+                weight=c.get("weight", 500.0)
+            )
+            computed_status = await _determine_dynamic_status(tag_id, c.get("weight", 500.0))
+            if c.get("status") != computed_status:
+                c["status"] = computed_status
+                await firebase_service.update_document("cattle", tag_id, {"status": computed_status})
+
         return cattle_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching cattle: {str(e)}")
@@ -52,31 +127,49 @@ async def create_cattle(cattle: CattleCreate):
             raise HTTPException(status_code=400, detail="Tag ID already exists")
         
         # Create cattle object
+        # Determine status based on weight thresholds
+        if cattle.weight < int(os.getenv("UNDERWEIGHT_THRESHOLD", "450")):
+            status = "underweight"
+        elif cattle.weight > int(os.getenv("OVERWEIGHT_THRESHOLD", "900")):
+            status = "overweight"
+        else:
+            status = "healthy"
         new_cattle = Cattle(
             tag_id=cattle.tag_id,
             name=cattle.name,
             breed=cattle.breed,
             date_of_birth=cattle.date_of_birth,
             weight=cattle.weight,
+            status=status,
             notes=cattle.notes
         )
         
         # Save to Firebase
-        success = await firebase_service.create_document("cattle", cattle.tag_id, new_cattle.dict())
+        success = await firebase_service.create_document("cattle", cattle.tag_id, new_cattle.model_dump())
         if not success:
             raise HTTPException(status_code=500, detail="Failed to create cattle record")
+        # Generate weight alert if applicable
+        weight_alert = _generate_weight_alert(cattle.tag_id, cattle.weight)
+        if weight_alert:
+            await firebase_service.create_document("alerts", weight_alert.id, weight_alert.dict())
         
         # Add to synthetic engine
-        synthetic_engine.cattle_profiles[cattle.tag_id] = {
-            "tag_id": cattle.tag_id,
-            "name": cattle.name,
-            "breed": cattle.breed,
-            "date_of_birth": cattle.date_of_birth,
-            "weight": cattle.weight,
-            "base_milk_yield": 25.0,  # Default
-            "heat_cycle_day": 1
-        }
+        synthetic_engine.register_cattle_if_missing(
+            tag_id=cattle.tag_id,
+            name=cattle.name,
+            breed=cattle.breed,
+            date_of_birth=cattle.date_of_birth,
+            weight=cattle.weight
+        )
         
+        # After creating the cattle, generate an initial sensor reading and evaluate alerts
+        # Generate a synthetic sensor reading for the new cattle
+        reading = synthetic_engine.generate_sensor_reading(cattle.tag_id)
+        # Check for any alert conditions based on this reading
+        alerts = await synthetic_engine.check_alert_conditions(cattle.tag_id, reading)
+        # Persist any generated alerts to Firebase
+        for alert in alerts:
+            await firebase_service.create_document("alerts", alert.id, alert.dict())
         return new_cattle
     except HTTPException:
         raise
@@ -92,6 +185,14 @@ async def get_cattle_detail(tag_id: str):
         if not cattle:
             raise HTTPException(status_code=404, detail="Cattle not found")
         
+        # Register in synthetic engine if not already present
+        synthetic_engine.register_cattle_if_missing(
+            tag_id=tag_id,
+            name=cattle.get("name", tag_id),
+            breed=cattle.get("breed", "holstein"),
+            date_of_birth=cattle.get("date_of_birth"),
+            weight=cattle.get("weight", 500.0)
+        )
         # Get latest sensor reading
         latest_reading = await get_latest_sensor_reading(tag_id)
         
@@ -133,15 +234,32 @@ async def update_cattle(tag_id: str, cattle_update: CattleUpdate):
             raise HTTPException(status_code=404, detail="Cattle not found")
         
         # Prepare update data (only non-None fields)
-        update_data = cattle_update.dict(exclude_unset=True)
+        update_data = cattle_update.model_dump(exclude_unset=True)
         if update_data:
             update_data["updated_at"] = datetime.utcnow()
+            
+            # Calculate dynamic status based on updated or existing weight
+            current_weight = update_data.get("weight") if "weight" in update_data else existing.get("weight", 500.0)
+            new_status = await _determine_dynamic_status(tag_id, current_weight)
+            update_data["status"] = new_status
+            
             success = await firebase_service.update_document("cattle", tag_id, update_data)
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to update cattle")
+            
+            # If weight changed, generate weight alert
+            if "weight" in update_data:
+                weight_alert = _generate_weight_alert(tag_id, update_data["weight"])
+                if weight_alert:
+                    await firebase_service.create_document("alerts", weight_alert.id, weight_alert.dict())
         
         # Return updated cattle
         updated = await firebase_service.get_document("cattle", tag_id)
+        # After updating the cattle, generate a sensor reading to evaluate any new alerts
+        reading = synthetic_engine.generate_sensor_reading(tag_id)
+        alerts = await synthetic_engine.check_alert_conditions(tag_id, reading)
+        for alert in alerts:
+            await firebase_service.create_document("alerts", alert.id, alert.model_dump())
         return updated
     except HTTPException:
         raise

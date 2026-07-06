@@ -11,6 +11,8 @@ class AlertType(str, Enum):
     MILK_DROP = "milk_drop"
     HEAT_DETECTED = "heat_detected"
     CALVING_DUE = "calving_due"
+    UNDERWEIGHT = "underweight"
+    OVERWEIGHT = "overweight"
 
 class AlertSeverity(str, Enum):
     CRITICAL = "critical"

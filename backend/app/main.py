@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import cattle, alerts, milk, reproduction
@@ -6,10 +8,19 @@ from app.services.synthetic_data_engine import synthetic_engine
 from app.services.firebase_service import firebase_service
 import uvicorn
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the synthetic data generation scheduler
+    start_scheduler()
+    yield
+
 app = FastAPI(
     title="Farm Guardians API",
     description="Smart Cattle Monitoring Backend",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS for React Native development
@@ -27,10 +38,7 @@ app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
 app.include_router(milk.router, prefix="/milk", tags=["milk"])
 app.include_router(reproduction.router, prefix="/reproduction", tags=["reproduction"])
 
-@app.on_event("startup")
-async def startup_event():
-    # Start the synthetic data generation scheduler
-    start_scheduler()
+# Startup handled by lifespan (removed)
 
 @app.get("/")
 async def root():

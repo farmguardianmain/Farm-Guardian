@@ -16,8 +16,7 @@ class FirebaseService:
         """Switch to in-memory mode when Firestore is unavailable at runtime."""
         if self.db is not None:
             print(
-                f"⚠️ Firestore unavailable during {operation}. "
-                f"Switching to in-memory mock mode. Error: {error}"
+                f"Firestore unavailable during {operation}. Switching to in-memory mock mode. Error: {error}"
             )
         self.db = None
         self.mode = "mock"
@@ -39,6 +38,7 @@ class FirebaseService:
         """Initialize Firebase with service account credentials"""
         try:
             # Option 1: Render-friendly raw JSON secret.
+            # Removed stray data_generation_interval line (handled elsewhere)
             cred_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
             if cred_json:
                 service_account_info = self._parse_service_account_json(cred_json)
@@ -59,9 +59,13 @@ class FirebaseService:
 
             # Option 2: Local file path.
             cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY", "service-account-key.json")
-            
-            if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
+            # Resolve the credential path relative to the project root (backend directory)
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parents[2]  # backend folder
+            absolute_cred_path = (project_root / cred_path).resolve()
+
+            if absolute_cred_path.is_file():
+                cred = credentials.Certificate(str(absolute_cred_path))
 
                 try:
                     get_app()
@@ -70,13 +74,13 @@ class FirebaseService:
 
                 self.db = firestore.client()
                 self.mode = "firestore"
-                print(f"✅ Firebase initialized successfully (source: {cred_path})")
+                print(f"Firebase initialized successfully (source: {absolute_cred_path})")
             else:
-                print("⚠️  Firebase service account key not found. Using in-memory mock mode.")
+                print("Firebase service account key not found. Using in-memory mock mode.")
                 self.db = None
                 self.mode = "mock"
         except Exception as e:
-            print(f"❌ Firebase initialization failed: {e}")
+            print(f"Firebase initialization failed: {e}")
             self.db = None
             self.mode = "mock"
     

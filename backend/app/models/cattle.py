@@ -9,6 +9,8 @@ class CattleStatus(str, Enum):
     IN_HEAT = "in_heat"
     PREGNANT = "pregnant"
     DRY = "dry"
+    OVERWEIGHT = "overweight"
+    UNDERWEIGHT = "underweight"
 
 class Breed(str, Enum):
     HOLSTEIN = "holstein"

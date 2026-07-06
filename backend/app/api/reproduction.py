@@ -25,20 +25,29 @@ def _sort_timestamp(value) -> float:
 
 @router.get("/heat-detection")
 async def get_heat_detection():
-    """Get cattle currently in heat or approaching heat"""
+    """Get cattle currently in heat or approaching heat (synthetic + manually logged)"""
     try:
         # Get all cattle
         all_cattle = await firebase_service.get_collection("cattle")
         heat_list = []
-        
+        seen_ids = set()
+
         for cattle in all_cattle:
             tag_id = cattle.get("tag_id")
-            
+
+            synthetic_engine.register_cattle_if_missing(
+                tag_id=tag_id,
+                name=cattle.get("name", tag_id),
+                breed=cattle.get("breed", "holstein"),
+                date_of_birth=cattle.get("date_of_birth"),
+                weight=cattle.get("weight", 500.0)
+            )
+
             # Get latest synthetic data for heat score
             if tag_id in synthetic_engine.last_readings:
                 last_reading = synthetic_engine.last_readings[tag_id]
                 heat_score = last_reading.get("heat_score", 0)
-                
+
                 # Determine if in heat or approaching
                 if heat_score > 75:
                     status = "in_heat"
@@ -48,11 +57,11 @@ async def get_heat_detection():
                     optimal_ai = heat_score > 60
                 else:
                     continue  # Not in heat cycle
-                
+
                 # Calculate days since last heat (simplified)
                 heat_cycle_day = synthetic_engine.cattle_profiles[tag_id].get("heat_cycle_day", 1)
                 days_since_last_heat = heat_cycle_day
-                
+
                 heat_list.append({
                     "cattle_id": tag_id,
                     "name": cattle.get("name", tag_id),
@@ -61,12 +70,42 @@ async def get_heat_detection():
                     "status": status,
                     "days_since_last_heat": days_since_last_heat,
                     "optimal_ai_window": optimal_ai,
-                    "last_heat_date": datetime.utcnow() - timedelta(days=days_since_last_heat)
+                    "last_heat_date": datetime.utcnow() - timedelta(days=days_since_last_heat),
+                    "manual": False,
                 })
-        
+                seen_ids.add(tag_id)
+
+        # Merge manually logged heat events (for cattle NOT already in synthetic list)
+        try:
+            manual_events = await firebase_service.get_collection("heat_events")
+            for event in manual_events:
+                cid = event.get("cattle_id")
+                if cid in seen_ids:
+                    continue
+                score = event.get("heat_score", 0)
+                if score < 40:
+                    continue
+                # Get cattle details
+                cow = await firebase_service.get_document("cattle", cid)
+                heat_list.append({
+                    "cattle_id": cid,
+                    "name": cow.get("name", cid) if cow else cid,
+                    "breed": cow.get("breed", "") if cow else "",
+                    "heat_score": score,
+                    "status": "in_heat" if score > 75 else "approaching",
+                    "days_since_last_heat": 0,
+                    "optimal_ai_window": score > 60,
+                    "last_heat_date": event.get("date", datetime.utcnow()),
+                    "notes": event.get("notes", ""),
+                    "manual": True,
+                })
+                seen_ids.add(cid)
+        except Exception:
+            pass  # manual events are optional
+
         # Sort by heat score (highest first)
         heat_list.sort(key=lambda x: x["heat_score"], reverse=True)
-        
+
         return heat_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching heat detection data: {str(e)}")
@@ -103,6 +142,13 @@ async def get_pregnancy_tracker():
             # Get cattle details
             cattle = await firebase_service.get_document("cattle", cattle_id)
             if cattle:
+                synthetic_engine.register_cattle_if_missing(
+                    tag_id=cattle.get("tag_id"),
+                    name=cattle.get("name", cattle.get("tag_id")),
+                    breed=cattle.get("breed", "holstein"),
+                    date_of_birth=cattle.get("date_of_birth"),
+                    weight=cattle.get("weight", 500.0)
+                )
                 pregnancy_list.append({
                     "cattle_id": cattle_id,
                     "name": cattle.get("name", cattle_id),
@@ -122,6 +168,43 @@ async def get_pregnancy_tracker():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching pregnancy tracker: {str(e)}")
 
+@router.post("/log-heat-event")
+async def log_heat_event(heat_data: Dict[str, Any]):
+    """Manually log a heat detection event for a cattle"""
+    try:
+        cattle_id = heat_data.get("cattle_id")
+        if not cattle_id:
+            raise HTTPException(status_code=400, detail="cattle_id is required")
+
+        score = heat_data.get("heat_score")
+        if score is None:
+            raise HTTPException(status_code=400, detail="heat_score is required")
+
+        # Verify cattle exists
+        cattle = await firebase_service.get_document("cattle", cattle_id)
+        if not cattle:
+            raise HTTPException(status_code=404, detail="Cattle not found")
+
+        event = {
+            "id": f"heat_{cattle_id}_{int(datetime.utcnow().timestamp())}",
+            "cattle_id": cattle_id,
+            "heat_score": float(score),
+            "notes": heat_data.get("notes", ""),
+            "date": heat_data.get("date") or datetime.utcnow().isoformat(),
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        success = await firebase_service.create_document("heat_events", event["id"], event)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save heat event")
+
+        return {"message": "Heat event logged successfully", "event": event}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error logging heat event: {str(e)}")
+
+
 @router.post("/log-ai-event")
 async def log_ai_event(ai_data: Dict[str, Any]):
     """Log an artificial insemination event"""
@@ -134,6 +217,15 @@ async def log_ai_event(ai_data: Dict[str, Any]):
         cattle = await firebase_service.get_document("cattle", ai_data["cattle_id"])
         if not cattle:
             raise HTTPException(status_code=404, detail="Cattle not found")
+
+        # Register in synthetic engine if not already present
+        synthetic_engine.register_cattle_if_missing(
+            tag_id=cattle.get("tag_id"),
+            name=cattle.get("name", cattle.get("tag_id")),
+            breed=cattle.get("breed", "holstein"),
+            date_of_birth=cattle.get("date_of_birth"),
+            weight=cattle.get("weight", 500.0)
+        )
 
         ai_date = _to_datetime(ai_data.get("date")) or datetime.utcnow()
         
